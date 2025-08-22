@@ -1,0 +1,76 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String             @id @default(cuid())
+  email         String             @unique
+  passwordHash  String // 비밀번호 필드명 일치
+  name          String
+  createdAt     DateTime           @default(now())
+
+  stats         UserTreeStats?
+  ledger        PointsLedger[]
+  redemptions   CouponRedemption[]
+  coupons       Coupon[]           // User와 Coupon 관계 추가
+}
+
+model UserTreeStats {
+  userId      String    @id
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  totalUses   Int       @default(0)
+  totalTrees  Int       @default(0)
+  totalPoints Int       @default(0)
+  updatedAt   DateTime  @updatedAt
+}
+
+model GlobalTreeStats {
+  id              Int      @id @default(1)
+  totalUses       Int      @default(0)
+  totalTrees      Int      @default(0)
+  totalPointsIssued Int      @default(0)
+  updatedAt       DateTime @updatedAt
+}
+
+model PointsLedger {
+  id        String   @id @default(cuid())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+  delta     Int
+  reason    String
+  refType   String?
+  refId     String?
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+}
+
+model Coupon {
+  id          String             @id @default(cuid())
+  code        String             @unique
+  type        String
+  value       Int
+  isActive    Boolean            @default(true)
+  expiresAt   DateTime?
+  createdAt   DateTime           @default(now())
+  userId      String?            // Coupon 모델에 userId 추가 (선택 사항)
+  user        User?              @relation(fields: [userId], references: [id]) // User와 관계 설정
+  redemptions CouponRedemption[]
+}
+
+model CouponRedemption {
+  id         String   @id @default(cuid())
+  coupon     Coupon   @relation(fields: [couponId], references: [id], onDelete: Cascade)
+  couponId   String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId     String
+  usedPoints Int
+  createdAt  DateTime @default(now())
+
+  @@index([userId, createdAt])
+}

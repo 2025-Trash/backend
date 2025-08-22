@@ -1,44 +1,24 @@
 import { Router } from "express";
-import { AuthedRequest, authRequired } from "../middleware/auth.js";
-import { withTx } from "../utils/prisma.js";
-import type { PrismaClient } from "@prisma/client";
+import { prisma } from "../prisma";
+import { authRequired, AuthRequest } from "../middleware/auth";
 
 const router = Router();
 
-router.post("/redeem", authRequired, async (req: AuthedRequest, res, next) => {
-  try {
-    const { code } = req.body as { code: string };
-    const uid = req.user!.uid;
+// 쿠폰 발급
+router.post("/", authRequired, async (req: AuthRequest, res) => {
+  if (!req.user) return res.status(401).json({ ok: false });
 
-    const redemption = await withTx(async (tx: PrismaClient) => {
-      const coupon = await tx.coupon.findUnique({ where: { code } });
-      if (!coupon || !coupon.isActive) throw Object.assign(new Error("Invalid coupon"), { status: 400 });
-      if (coupon.expiresAt && coupon.expiresAt < new Date()) {
-        throw Object.assign(new Error("Coupon expired"), { status: 400 });
-      }
+  const coupon = await prisma.coupon.create({
+    data: {
+      // req.user.sub를 String으로 변환
+      userId: String(req.user.sub), // coupon 모델에 userId 필드가 추가되었음을 가정
+      code: `CP-${Date.now()}`,
+      type: "DISCOUNT", // 또는 다른 기본 타입
+      value: 100, // 또는 다른 기본 값
+    },
+  });
 
-      const stats = await tx.userTreeStats.findUnique({ where: { userId: uid } });
-      const current = stats?.totalPoints ?? 0;
-      if (current < coupon.value) throw Object.assign(new Error("Not enough points"), { status: 400 });
-
-      const used = await tx.pointsLedger.create({
-        data: { userId: uid, delta: -coupon.value, reason: "coupon_redeem", refType: "COUPON", refId: coupon.id }
-      });
-
-      await tx.userTreeStats.update({
-        where: { userId: uid },
-        data: { totalPoints: current - coupon.value }
-      });
-
-      await tx.couponRedemption.create({
-        data: { userId: uid, couponId: coupon.id, usedPoints: coupon.value }
-      });
-
-      return used;
-    });
-
-    res.status(201).json({ ok: true, ledgerId: redemption.id });
-  } catch (e) { next(e); }
+  res.json({ ok: true, coupon });
 });
 
 export default router;

@@ -1,22 +1,33 @@
 import { Router } from "express";
-import { authOptional, AuthedRequest } from "../middleware/auth.js";
-import { prisma } from "../utils/prisma.js";
+import { prisma } from "../prisma";
+import { authOptional, AuthRequest } from "../middleware/auth";
 
 const router = Router();
 
-router.get("/me", authOptional, async (req: AuthedRequest, res, next) => {
-  try {
-    if (!req.user) return res.status(401).json({ message: "Unauthorized" });
-    const stats = await prisma.userTreeStats.findUnique({ where: { userId: req.user.uid } });
-    res.json({ stats: stats ?? { totalUses: 0, totalTrees: 0, totalPoints: 0 } });
-  } catch (e) { next(e); }
-});
+// 전체 통계 + 내 통계
+router.get("/", authOptional, async (req: AuthRequest, res) => {
+  // prisma.globalTreeStats로 모델명 수정
+  const globalStats = await prisma.globalTreeStats.aggregate({
+    _sum: { totalPointsIssued: true, totalUses: true }, // GlobalTreeStats 스키마에 맞게 필드명 수정
+  });
 
-router.get("/global", async (_req, res, next) => {
-  try {
-    const gs = await prisma.globalTreeStats.findUnique({ where: { id: 1 } });
-    res.json({ global: gs ?? { totalUses: 0, totalTrees: 0, totalPointsIssued: 0 } });
-  } catch (e) { next(e); }
+  let myStats = null;
+  if (req.user) {
+    // prisma.userTreeStats로 모델명 수정
+    myStats = await prisma.userTreeStats.findUnique({
+      // req.user.sub를 String으로 변환
+      where: { userId: String(req.user.sub) },
+    });
+  }
+
+  res.json({
+    ok: true,
+    global: {
+      totalPoints: globalStats._sum.totalPointsIssued ?? 0, // 필드명 수정
+      totalUses: globalStats._sum.totalUses ?? 0,
+    },
+    me: myStats,
+  });
 });
 
 export default router;

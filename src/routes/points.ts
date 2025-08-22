@@ -1,72 +1,52 @@
-import { Router } from "express";
-import { authRequired, AuthedRequest } from "../middleware/auth.js";
-import { prisma } from "../utils/prisma.js";
-import { withTx } from "../utils/prisma.js";
-import type { PrismaClient } from "@prisma/client";
+import { Router, Response } from "express";
+import { prisma } from "../prisma";
+import { authRequired, AuthRequest } from "../middleware/auth";
 
 const router = Router();
 
-router.post("/", authRequired, async (req: AuthedRequest, res, next) => {
+/**
+ * POST /api/points
+ * body: { amount?: number, countUse?: boolean }
+ * - amount: 포인트 증가량 (기본 1, 0 이상 정수)
+ * - countUse: 사용 횟수(totalUses)를 증가할지 여부 (기본 true)
+ */
+router.post("/", authRequired, async (req: AuthRequest, res: Response) => {
   try {
-    const { delta, reason, refType, refId } = req.body as {
-      delta: number; reason: string; refType?: string; refId?: string;
-    };
-    if (typeof delta !== "number" || !reason) {
-      return res.status(400).json({ message: "delta(number) and reason are required" });
+    if (!req.user?.sub) {
+      return res.status(401).json({ ok: false, error: { code: "NO_AUTH" } });
     }
 
-    const uid = req.user!.uid;
+    // 입력값 방어
+    const rawAmount = req.body?.amount;
+    const amount = Number.isInteger(rawAmount) && rawAmount >= 0 ? rawAmount : 1;
 
-    const result = await withTx(async (tx: PrismaClient) => {
-      const user = await tx.user.findUnique({ where: { id: uid }, include: { stats: true } });
-      if (!user) throw Object.assign(new Error("User not found"), { status: 404 });
+    const countUse = typeof req.body?.countUse === "boolean" ? req.body.countUse : true;
 
-      const ledger = await tx.pointsLedger.create({
-        data: { userId: uid, delta, reason, refType, refId },
-      });
-
-      const newPoints = (user.stats?.totalPoints ?? 0) + delta;
-      let incUses = 0;
-      let incTrees = 0;
-      if (refType === "BIN_USE") {
-        incUses = 1;
-        if (delta > 0 && delta % 4 === 0) incTrees = 1;
-      }
-
-      await tx.userTreeStats.upsert({
-        where: { userId: uid },
-        create: { userId: uid, totalPoints: newPoints, totalUses: incUses, totalTrees: incTrees },
-        update: {
-          totalPoints: newPoints,
-          totalUses: { increment: incUses },
-          totalTrees: { increment: incTrees },
-        }
-      });
-
-      await tx.globalTreeStats.update({
-        where: { id: 1 },
-        data: {
-          totalPointsIssued: delta > 0 ? { increment: delta } : undefined,
-          totalUses: { increment: incUses },
-          totalTrees: incTrees ? { increment: incTrees } : undefined,
-        }
-      });
-
-      return ledger;
+    // upsert + atomic increment
+    const updated = await prisma.userTreeStats.upsert({
+      where: { userId: String(req.user.sub) }, // userId가 Unique여야 안전
+      update: {
+        totalPoints: { increment: amount },
+        ...(countUse ? { totalUses: { increment: 1 } } : {}),
+      },
+      create: {
+        userId: String(req.user.sub),
+        totalPoints: amount,
+        totalUses: countUse ? 1 : 0,
+      },
     });
 
-    res.status(201).json({ ok: true, ledgerId: result.id });
-  } catch (e) { next(e); }
-});
-
-router.get("/ledger", authRequired, async (req: AuthedRequest, res, next) => {
-  try {
-    const uid = req.user!.uid;
-    const rows = await prisma.pointsLedger.findMany({
-      where: { userId: uid }, orderBy: { createdAt: "desc" }, take: 100,
-    });
-    res.json({ items: rows });
-  } catch (e) { next(e); }
+    return res.json({ ok: true, stats: updated });
+  } catch (err: any) {
+    console.error("[points:add] error:", err);
+    // Prisma 고유 에러 코드 대응 (필요 시 확장)
+    if (err?.code === "P2002") {
+      return res.status(409).json({ ok: false, error: { code: "CONFLICT", message: "중복 키" } });
+    }
+    return res
+      .status(500)
+      .json({ ok: false, error: { code: "INTERNAL", message: "서버 오류" } });
+  }
 });
 
 export default router;

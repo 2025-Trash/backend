@@ -44,3 +44,12 @@ Thumbs.db
 *.sqlite
 *.sqlite-journal
 *.tgz
+
+# Prisma
+prisma/dev.db
+
+
+# Env
+.env
+.env.*
+
