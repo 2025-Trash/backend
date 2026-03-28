@@ -1,0 +1,55 @@
+# ---------------------
+# Node / NPM
+# ---------------------
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# environment
+.env
+.env.*      # 로컬/개발/프로덕션 분리 가능
+
+# ---------------------
+# Build / Output
+# ---------------------
+dist/
+build/
+coverage/
+.cache/
+tmp/
+*.log
+
+# ---------------------
+# Prisma
+# ---------------------
+# Prisma Client 생성 파일
+prisma/generated/
+# (일반적으로는 node_modules/.prisma/client 아래 생성되므로 자동 제외됨)
+
+# ---------------------
+# OS / IDE
+# ---------------------
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.vscode/
+.idea/
+
+# ---------------------
+# Optional (테스트/도구)
+# ---------------------
+*.sqlite
+*.sqlite-journal
+*.tgz
+
+# Prisma
+prisma/dev.db
+
+
+# Env
+.env
+.env.*
+
